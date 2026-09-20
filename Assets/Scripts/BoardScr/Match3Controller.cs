@@ -1,6 +1,6 @@
-
 using System.Collections;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 
 public class Match3Controller : MonoBehaviour
@@ -8,16 +8,34 @@ public class Match3Controller : MonoBehaviour
     [SerializeField] private Grid grid;
     [SerializeField] private GameObject[] cellPrefabs;
     [SerializeField] private RoadController roadController;
+    [SerializeField] private TMP_Text noMovesText;
+    [SerializeField] private float noMovesDuration = 2f;
     [SerializeField] private float destroyDuration = 2f;
     [SerializeField] private float fallDuration = 0.2f;
 
     private readonly Dictionary<Vector2Int, Square> board = new();
 
+    private bool isBusy;
+
     private void Start()
     {
+        if (noMovesText != null)
+            noMovesText.gameObject.SetActive(false);
+
+        StartCoroutine(InitializeBoard());
+    }
+
+    private IEnumerator InitializeBoard()
+    {
+        isBusy = true;
+
         SetupBoard();
         FillBoard();
-        StartCoroutine(ProcessMatches());
+
+        yield return StartCoroutine(ProcessMatches());
+        yield return StartCoroutine(EnsurePlayableBoard());
+
+        isBusy = false;
     }
 
     private void SetupBoard()
@@ -53,7 +71,12 @@ public class Match3Controller : MonoBehaviour
 
     private void SpawnCell(Square square)
     {
-        int typeIndex = Random.Range(0, cellPrefabs.Length);
+        if (cellPrefabs == null ||
+            cellPrefabs.Length == 0)
+            return;
+
+        int typeIndex =
+            Random.Range(0, cellPrefabs.Length);
 
         GameObject cellObject = Instantiate(
             cellPrefabs[typeIndex],
@@ -61,15 +84,27 @@ public class Match3Controller : MonoBehaviour
             Quaternion.identity
         );
 
-        Cell cell = cellObject.GetComponent<Cell>();
+        Cell cell =
+            cellObject.GetComponent<Cell>();
+
+        if (cell == null)
+        {
+            Destroy(cellObject);
+            return;
+        }
 
         square.cell = cell;
         square.isEmpty = false;
         cell.isRuined = false;
     }
 
-    public void TrySwap(Cell selectedCell, Vector2Int direction)
+    public void TrySwap(
+        Cell selectedCell,
+        Vector2Int direction)
     {
+        if (isBusy)
+            return;
+
         if (selectedCell == null)
             return;
 
@@ -105,6 +140,8 @@ public class Match3Controller : MonoBehaviour
 
         targetCell.transform.position =
             selectedSquare.transform.position;
+
+        isBusy = true;
 
         StartCoroutine(
             CheckSwapResult(
@@ -160,15 +197,29 @@ public class Match3Controller : MonoBehaviour
                     secondSquare.transform.position;
             }
 
+            isBusy = false;
             yield break;
         }
 
-        yield return StartCoroutine(DestroyMatches(matches));
-        yield return StartCoroutine(ApplyGravity());
+        yield return StartCoroutine(
+            DestroyMatches(matches)
+        );
+
+        yield return StartCoroutine(
+            ApplyGravity()
+        );
 
         FillBoard();
 
-        yield return StartCoroutine(ProcessMatches());
+        yield return StartCoroutine(
+            ProcessMatches()
+        );
+
+        yield return StartCoroutine(
+            EnsurePlayableBoard()
+        );
+
+        isBusy = false;
     }
 
     private IEnumerator ProcessMatches()
@@ -193,6 +244,113 @@ public class Match3Controller : MonoBehaviour
             FillBoard();
 
             yield return null;
+        }
+    }
+
+    private IEnumerator EnsurePlayableBoard()
+    {
+        while (!HasPossibleMove())
+        {
+            if (noMovesText != null)
+            {
+                noMovesText.text = "No moves";
+                noMovesText.gameObject.SetActive(true);
+            }
+
+            yield return new WaitForSeconds(
+                noMovesDuration
+            );
+
+            if (noMovesText != null)
+                noMovesText.gameObject.SetActive(false);
+
+            ClearCells();
+            FillBoard();
+
+            yield return StartCoroutine(
+                ProcessMatches()
+            );
+        }
+    }
+
+    private bool HasPossibleMove()
+    {
+        foreach (KeyValuePair<Vector2Int, Square> entry in board)
+        {
+            Vector2Int coordinate = entry.Key;
+            Square square = entry.Value;
+
+            if (square.isEmpty ||
+                square.cell == null)
+                continue;
+
+            if (HasPossibleMove(
+                    coordinate,
+                    Vector2Int.right))
+                return true;
+
+            if (HasPossibleMove(
+                    coordinate,
+                    Vector2Int.up))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool HasPossibleMove(
+        Vector2Int firstCoordinate,
+        Vector2Int direction)
+    {
+        Vector2Int secondCoordinate =
+            firstCoordinate + direction;
+
+        if (!board.TryGetValue(
+                secondCoordinate,
+                out Square secondSquare))
+            return false;
+
+        if (secondSquare.isEmpty ||
+            secondSquare.cell == null)
+            return false;
+
+        Square firstSquare =
+            board[firstCoordinate];
+
+        Cell firstCell =
+            firstSquare.cell;
+
+        Cell secondCell =
+            secondSquare.cell;
+
+        firstSquare.cell = secondCell;
+        secondSquare.cell = firstCell;
+
+        bool createsMatch =
+            FindMatches().Count > 0;
+
+        firstSquare.cell = firstCell;
+        secondSquare.cell = secondCell;
+
+        return createsMatch;
+    }
+
+    private void ClearCells()
+    {
+        foreach (KeyValuePair<Vector2Int, Square> entry in board)
+        {
+            Square square = entry.Value;
+
+            if (square.cell == null)
+            {
+                square.isEmpty = true;
+                continue;
+            }
+
+            Destroy(square.cell.gameObject);
+
+            square.cell = null;
+            square.isEmpty = true;
         }
     }
 
@@ -278,7 +436,9 @@ public class Match3Controller : MonoBehaviour
         foreach (Cell cell in matches)
         {
             if (cell != null)
-                StartCoroutine(FadeAndDestroy(cell));
+                StartCoroutine(
+                    FadeAndDestroy(cell)
+                );
         }
 
         yield return new WaitForSeconds(
@@ -286,7 +446,8 @@ public class Match3Controller : MonoBehaviour
         );
     }
 
-    private IEnumerator FadeAndDestroy(Cell cell)
+    private IEnumerator FadeAndDestroy(
+        Cell cell)
     {
         if (cell == null)
             yield break;
@@ -311,8 +472,12 @@ public class Match3Controller : MonoBehaviour
             yield break;
         }
 
-        Color startColor = spriteRenderer.color;
-        Color endColor = startColor;
+        Color startColor =
+            spriteRenderer.color;
+
+        Color endColor =
+            startColor;
+
         endColor.a = 0f;
 
         float time = 0f;
@@ -491,4 +656,3 @@ public class Match3Controller : MonoBehaviour
             targetPosition;
     }
 }
-
