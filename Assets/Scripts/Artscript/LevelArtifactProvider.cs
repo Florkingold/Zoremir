@@ -2,7 +2,6 @@ using UnityEngine;
 
 public class LevelArtifactProvider : MonoBehaviour
 {
-    [SerializeField] private ArtifactPanel artifactPanel;
     [SerializeField] private GameObject artifactPrefab;
 
     private void Start()
@@ -12,13 +11,17 @@ public class LevelArtifactProvider : MonoBehaviour
 
     private void GiveArtifact()
     {
+        ArtifactPanel artifactPanel =
+            FindObjectOfType<ArtifactPanel>();
+
         if (artifactPanel == null)
             return;
 
         if (artifactPrefab == null)
             return;
 
-        ArtifactSlot firstSlot = artifactPanel.GetSlot(0);
+        ArtifactSlot firstSlot =
+            artifactPanel.GetSlot(0);
 
         if (firstSlot == null)
             return;

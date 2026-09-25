@@ -1,8 +1,9 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 public class ArtifactSlot : MonoBehaviour
 {
-    [SerializeField] private GameObject blockedVisual;
+    [SerializeField] private Image blockedVisual;
 
     private Artifact artifact;
     private int slotIndex;
@@ -76,7 +77,15 @@ public class ArtifactSlot : MonoBehaviour
 
     public void UpdateVisual()
     {
-        if (blockedVisual != null)
-            blockedVisual.SetActive(!IsUnlocked);
+        if (blockedVisual == null)
+            return;
+
+        GameObject blockedObject =
+            blockedVisual.gameObject;
+
+        blockedObject.SetActive(IsBlocked);
+
+        if (IsBlocked)
+            blockedObject.transform.SetAsLastSibling();
     }
 }

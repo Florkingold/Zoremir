@@ -7,6 +7,8 @@ public class ArtifactInventory : MonoBehaviour
     public const int InitialUnlockedSlots = 3;
 
     private const string UnlockedSlotsKey = "ArtifactInventory_UnlockedSlots";
+    private const string DataVersionKey = "ArtifactInventory_DataVersion";
+    private const int CurrentDataVersion = 3;
 
     public static ArtifactInventory Instance { get; private set; }
 
@@ -20,7 +22,9 @@ public class ArtifactInventory : MonoBehaviour
         if (Instance != null)
             return;
 
-        GameObject inventoryObject = new GameObject("ArtifactInventory");
+        GameObject inventoryObject =
+            new GameObject("ArtifactInventory");
+
         inventoryObject.AddComponent<ArtifactInventory>();
     }
 
@@ -69,6 +73,21 @@ public class ArtifactInventory : MonoBehaviour
 
     private void LoadProgress()
     {
+        int dataVersion =
+            PlayerPrefs.GetInt(
+                DataVersionKey,
+                0
+            );
+
+        if (dataVersion < CurrentDataVersion)
+        {
+            UnlockedSlots = InitialUnlockedSlots;
+
+            SaveProgress();
+
+            return;
+        }
+
         UnlockedSlots = PlayerPrefs.GetInt(
             UnlockedSlotsKey,
             InitialUnlockedSlots
@@ -86,6 +105,11 @@ public class ArtifactInventory : MonoBehaviour
         PlayerPrefs.SetInt(
             UnlockedSlotsKey,
             UnlockedSlots
+        );
+
+        PlayerPrefs.SetInt(
+            DataVersionKey,
+            CurrentDataVersion
         );
 
         PlayerPrefs.Save();

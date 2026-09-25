@@ -11,15 +11,15 @@ public class ArtifactPanel : MonoBehaviour
         FindSlots();
     }
 
-    private void OnEnable()
+    private void Start()
     {
+        UpdateSlots();
+
         if (ArtifactInventory.Instance != null)
             ArtifactInventory.Instance.OnInventoryChanged += UpdateSlots;
-
-        UpdateSlots();
     }
 
-    private void OnDisable()
+    private void OnDestroy()
     {
         if (ArtifactInventory.Instance != null)
             ArtifactInventory.Instance.OnInventoryChanged -= UpdateSlots;

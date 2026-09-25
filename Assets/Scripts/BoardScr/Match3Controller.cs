@@ -16,6 +16,8 @@ public class Match3Controller : MonoBehaviour
     private readonly Dictionary<Vector2Int, Square> board = new();
 
     private bool isBusy;
+    private bool unlockRefreshRequested;
+    private bool unlockRefreshRunning;
 
     private void Start()
     {
@@ -62,15 +64,28 @@ public class Match3Controller : MonoBehaviour
     {
         foreach (KeyValuePair<Vector2Int, Square> entry in board)
         {
-            if (!entry.Value.isEmpty)
+            Square square = entry.Value;
+
+            if (square.isBlocked)
+            {
+                square.cell = null;
+                square.isEmpty = true;
+                continue;
+            }
+
+            if (!square.isEmpty)
                 continue;
 
-            SpawnCell(entry.Value);
+            SpawnCell(square);
         }
     }
 
     private void SpawnCell(Square square)
     {
+        if (square == null ||
+            square.isBlocked)
+            return;
+
         if (cellPrefabs == null ||
             cellPrefabs.Length == 0)
             return;
@@ -98,6 +113,57 @@ public class Match3Controller : MonoBehaviour
         cell.isRuined = false;
     }
 
+    public void RefreshAfterUnlock()
+    {
+        unlockRefreshRequested = true;
+
+        if (unlockRefreshRunning)
+            return;
+
+        StartCoroutine(
+            ProcessUnlockRefresh()
+        );
+    }
+
+    private IEnumerator ProcessUnlockRefresh()
+    {
+        unlockRefreshRunning = true;
+
+        while (isBusy)
+            yield return null;
+
+        if (!unlockRefreshRequested)
+        {
+            unlockRefreshRunning = false;
+            yield break;
+        }
+
+        unlockRefreshRequested = false;
+        isBusy = true;
+
+        yield return StartCoroutine(
+            ApplyGravity()
+        );
+
+        FillBoard();
+
+        yield return StartCoroutine(
+            ProcessMatches()
+        );
+
+        yield return StartCoroutine(
+            EnsurePlayableBoard()
+        );
+
+        isBusy = false;
+        unlockRefreshRunning = false;
+
+        if (unlockRefreshRequested)
+            StartCoroutine(
+                ProcessUnlockRefresh()
+            );
+    }
+
     public void TrySwap(
         Cell selectedCell,
         Vector2Int direction)
@@ -118,12 +184,18 @@ public class Match3Controller : MonoBehaviour
                 out Square selectedSquare))
             return;
 
+        if (selectedSquare.isBlocked)
+            return;
+
         Vector2Int targetCoordinate =
             selectedCoordinate + direction;
 
         if (!board.TryGetValue(
                 targetCoordinate,
                 out Square targetSquare))
+            return;
+
+        if (targetSquare.isBlocked)
             return;
 
         if (targetSquare.isEmpty ||
@@ -280,6 +352,9 @@ public class Match3Controller : MonoBehaviour
             Vector2Int coordinate = entry.Key;
             Square square = entry.Value;
 
+            if (square.isBlocked)
+                continue;
+
             if (square.isEmpty ||
                 square.cell == null)
                 continue;
@@ -310,12 +385,20 @@ public class Match3Controller : MonoBehaviour
                 out Square secondSquare))
             return false;
 
+        if (secondSquare.isBlocked)
+            return false;
+
         if (secondSquare.isEmpty ||
             secondSquare.cell == null)
             return false;
 
-        Square firstSquare =
-            board[firstCoordinate];
+        if (!board.TryGetValue(
+                firstCoordinate,
+                out Square firstSquare))
+            return false;
+
+        if (firstSquare.isBlocked)
+            return false;
 
         Cell firstCell =
             firstSquare.cell;
@@ -341,6 +424,18 @@ public class Match3Controller : MonoBehaviour
         {
             Square square = entry.Value;
 
+            if (square.isBlocked)
+            {
+                if (square.cell != null)
+                {
+                    Destroy(square.cell.gameObject);
+                    square.cell = null;
+                }
+
+                square.isEmpty = true;
+                continue;
+            }
+
             if (square.cell == null)
             {
                 square.isEmpty = true;
@@ -362,6 +457,9 @@ public class Match3Controller : MonoBehaviour
         {
             Vector2Int coordinate = entry.Key;
             Square square = entry.Value;
+
+            if (square.isBlocked)
+                continue;
 
             if (square.isEmpty ||
                 square.cell == null)
@@ -410,6 +508,9 @@ public class Match3Controller : MonoBehaviour
             current,
             out Square square))
         {
+            if (square.isBlocked)
+                break;
+
             if (square.isEmpty ||
                 square.cell == null)
                 break;
@@ -558,61 +659,94 @@ public class Match3Controller : MonoBehaviour
                     a.Key.y.CompareTo(b.Key.y)
             );
 
-            List<Square> occupied = new();
+            List<Square> segment = new();
 
             foreach (KeyValuePair<Vector2Int, Square> entry
                      in column)
             {
-                if (!entry.Value.isEmpty &&
-                    entry.Value.cell != null)
+                Square square = entry.Value;
+
+                if (square.isBlocked)
                 {
-                    occupied.Add(entry.Value);
+                    ApplyGravityToSegment(segment);
+                    segment.Clear();
+                    continue;
                 }
+
+                segment.Add(square);
             }
 
-            for (int i = 0; i < column.Count; i++)
-            {
-                Square targetSquare =
-                    column[i].Value;
-
-                if (i < occupied.Count)
-                {
-                    Square sourceSquare =
-                        occupied[i];
-
-                    if (sourceSquare == targetSquare)
-                        continue;
-
-                    Cell cell =
-                        sourceSquare.cell;
-
-                    sourceSquare.cell = null;
-                    sourceSquare.isEmpty = true;
-
-                    targetSquare.cell = cell;
-                    targetSquare.isEmpty = false;
-
-                    if (cell != null)
-                    {
-                        StartCoroutine(
-                            MoveCell(
-                                cell,
-                                targetSquare.transform.position
-                            )
-                        );
-                    }
-                }
-                else
-                {
-                    targetSquare.cell = null;
-                    targetSquare.isEmpty = true;
-                }
-            }
+            ApplyGravityToSegment(segment);
         }
 
         yield return new WaitForSeconds(
             fallDuration
         );
+    }
+
+    private void ApplyGravityToSegment(
+        List<Square> segment)
+    {
+        if (segment == null ||
+            segment.Count == 0)
+            return;
+
+        List<Square> occupied = new();
+
+        foreach (Square square in segment)
+        {
+            if (square.isBlocked)
+                continue;
+
+            if (!square.isEmpty &&
+                square.cell != null)
+            {
+                occupied.Add(square);
+            }
+        }
+
+        for (int i = 0; i < segment.Count; i++)
+        {
+            Square targetSquare =
+                segment[i];
+
+            if (targetSquare.isBlocked)
+                continue;
+
+            if (i < occupied.Count)
+            {
+                Square sourceSquare =
+                    occupied[i];
+
+                if (sourceSquare ==
+                    targetSquare)
+                    continue;
+
+                Cell cell =
+                    sourceSquare.cell;
+
+                sourceSquare.cell = null;
+                sourceSquare.isEmpty = true;
+
+                targetSquare.cell = cell;
+                targetSquare.isEmpty = false;
+
+                if (cell != null)
+                {
+                    StartCoroutine(
+                        MoveCell(
+                            cell,
+                            targetSquare.transform.position
+                        )
+                    );
+                }
+            }
+            else
+            {
+                targetSquare.cell = null;
+                targetSquare.isEmpty = true;
+            }
+        }
     }
 
     private IEnumerator MoveCell(
